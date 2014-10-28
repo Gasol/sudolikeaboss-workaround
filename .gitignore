@@ -1,0 +1,5 @@
+# Ignore the generated binary file
+sudolikeaboss-workaround
+
+# Ignore some build things
+_build

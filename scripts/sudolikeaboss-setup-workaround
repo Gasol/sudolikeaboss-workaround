@@ -1,0 +1,253 @@
+#!/usr/bin/env python
+import os
+import sys
+import shutil
+
+STARTING_COMMENT = "//START SUDOLIKEABOSS SHIM"
+END_COMMENT = "//END SUDOLIKEABOSS SHIM"
+EXTENSION_NAME = "aomjjhallfgjeglblehebfpbcfeobpgk"
+
+CHROME_JAVASCRIPT_SHIM = """
+/**
+ * This is a hacky shim that is injected into the chrome extension. Other
+ * extensions aren't yet supported and may never be. I hope everyone is using
+ * chrome. This acts as a proxy so that we can take advantage of the fact that
+ * the browser extension for chrome is authorized to make calls to 1password
+ */
+
+function loadSudolikeabossProxyOnDomReady() {
+  var slabServerConnection = new WebSocket('ws://127.0.0.1:16263/browser');
+  var onepassServerConnection = new WebSocket('ws://127.0.0.1:6263/4');
+  var lastUsedClientId;
+
+  slabServerConnection.onmessage = function(event) {
+    var envelope = JSON.parse(event.data);
+    lastUsedClientId = envelope.slabClientId;
+    onepassServerConnection.send(JSON.stringify(envelope.command));
+  };
+
+  slabServerConnection.onerror = function(err) {
+    console.error('Some error occured talking to the sudolikeaboss server');
+    console.error(err);
+  };
+
+
+  onepassServerConnection.onerror = function(err) {
+    console.error('Some error occured talking to the 1password server');
+    console.error(err);
+  };
+
+  onepassServerConnection.onmessage = function(event) {
+    var response = JSON.parse(event.data);
+    var envelope = {
+      slabClientId: lastUsedClientId,
+      response: response
+    };
+    slabServerConnection.send(JSON.stringify(envelope));
+  };
+}
+
+document.addEventListener('DOMContentLoaded', loadSudolikeabossProxyOnDomReady,
+                          false);
+"""
+
+SERVER_PLIST_FILE = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>KeepAlive</key>
+    <true/>
+    <key>Label</key>
+    <string>com.sudolikeaboss.sudolikeaboss</string>
+    <key>Program</key>
+    <string>/usr/local/bin/sudolikeaboss-workaround</string>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+"""
+
+PATH_TO_EXTENSION = os.path.join(
+    os.path.expanduser('~/Library/Application Support/Google/Chrome/Default/Extensions'),
+    EXTENSION_NAME
+)
+
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+CANNOT_FIND_EXTENSION_ERROR_MESSAGE = """
+Error: Cannot find correct Chrome Extension
+
+In order for the sudolikeaboss fix for 1password to work please install the
+Chrome Extension 4.2.5 or greater.
+"""
+
+UNSUPPORTED_EXTENSION_ERROR_MESSAGE = """
+Error: Chrome Extension found but version is incompatible
+
+The file that this shim is looking cannot be found. You seem to be using a
+greater version of this extension which is unsupported
+"""
+
+# Some utilities cannibalized from ravenac95/subwrap
+import subprocess
+
+
+def run(sub_command, exit_handle=None, **options):
+    """Run a command"""
+    command = Command(sub_command, exit_handle)
+    return command.run(**options)
+
+
+class CommandError(Exception):
+    """Default exception called if command return code is not zero"""
+    def __init__(self, response):
+        self.response = response
+        std_err = response.std_err
+        command_std_err = ''
+        if std_err:
+            command_std_err = ': %s' % std_err
+        message = 'Exit code [%d]%s' % (response.return_code,
+                command_std_err)
+        super(CommandError, self).__init__(message)
+
+
+def default_exit_handle(response):
+    if response.return_code != 0:
+        raise CommandError(response)
+
+
+class Command(object):
+    def __init__(self, command, exit_handle=None):
+        self._command = command
+        self._exit_handle = exit_handle or default_exit_handle
+
+    def run(self, **options):
+        # Remove stdout and stderr
+        options.pop('stdout', None)
+        options.pop('stderr', None)
+        process = subprocess.Popen(self._command, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, **options)
+        std_out, std_err = process.communicate()
+        response = Response(self._command, std_out, std_err,
+                process.returncode)
+        self._exit_handle(response)
+        return response
+
+
+class Response(object):
+    """Command response"""
+    def __init__(self, command, std_out, std_err, return_code):
+        self._command = command
+        self.std_out = std_out
+        self.std_err = std_err
+        self.return_code = return_code
+
+    def __repr__(self):
+        return '<Response %r>' % self._command
+
+
+def cannot_find_extension():
+    print CANNOT_FIND_EXTENSION_ERROR_MESSAGE
+    sys.exit(1)
+
+
+def unsupported_extension():
+    print UNSUPPORTED_EXTENSION_ERROR_MESSAGE
+    sys.exit(1)
+
+
+def main():
+    print "This script will install the 1Password5 workaround for sudolikeaboss"
+    print "which includes doing the following:"
+    print ""
+    print "    - Adding a shim that is added to the chrome extension"
+    print "        - Warning! This could potentially screw up chrome. Install at your own risk"
+    print "    - Daemonizing the sudolikeaboss-server"
+
+    yes = set(['yes', 'y', 'ye'])
+    no = set(['no', 'n'])
+
+    choice = ''
+    prompt = "Are you sure you wish to continue? [y/n] "
+    while True:
+        choice = raw_input(prompt).lower()
+        if choice in yes:
+            break
+        if choice in no:
+            print "Not installing. Have a great day!"
+            sys.exit(1)
+
+    print "Installing the shim for sudolikeaboss 1Password 5 support"
+
+    if not os.path.isdir(PATH_TO_EXTENSION):
+        cannot_find_extension()
+
+    try:
+        version_dir_name = os.listdir(PATH_TO_EXTENSION)[0]
+    except:
+        cannot_find_extension()
+
+    # Ensure the version numbers are ready
+    version_number = version_dir_name.split('_')[0]
+
+    version_list = map(lambda a: int(a), version_number.split('.'))
+
+    # if the version is less than 4.2.0 then i dunno if this works so don't let
+    # it do anything for now
+    if version_list < [4, 2, 0]:
+        cannot_find_extension()
+
+    background_js_file_path = os.path.join(PATH_TO_EXTENSION, version_dir_name,
+                                           'code', 'global.min.js')
+
+    if not os.path.isfile(background_js_file_path):
+        unsupported_extension()
+
+    print "    Creating a backup of the background script as ./background.js"
+    shutil.copyfile(background_js_file_path, 'background.js')
+
+    background_js_file = open(background_js_file_path)
+
+    background_js_file_lines = []
+
+    collect = True
+
+    # Check for already existing file
+    for line in background_js_file.readlines():
+        if line.startswith(STARTING_COMMENT):
+            collect = False
+        if collect:
+            background_js_file_lines.append(line.strip())
+        if line.startswith(END_COMMENT):
+            collect = True
+    background_js_file.close()
+
+    # Add the shim
+    background_js_file_lines.append(STARTING_COMMENT)
+    background_js_file_lines.append(CHROME_JAVASCRIPT_SHIM)
+    background_js_file_lines.append(END_COMMENT)
+
+    # Write extension background file with the shim
+    background_js_file = open(background_js_file_path, 'w')
+    background_js_file.write('\n'.join(background_js_file_lines))
+    background_js_file.close()
+
+    print "Writing the launchd config file to ~/Library/LaunchAgents/com.sudolikeaboss.sudolikeaboss.plist"
+
+    plist_path = os.path.expanduser('~/Library/LaunchAgents/com.sudolikeaboss.sudolikeaboss.plist')
+
+    plist_file = open(plist_path, 'w')
+    plist_file.write(SERVER_PLIST_FILE)
+    plist_file.close()
+
+    try:
+        run(["launchctl", "load", plist_path])
+    except CommandError, e:
+        print e
+        sys.exit(1)
+
+    print "Installation completed successfully"
+
+
+if __name__ == '__main__':
+    main()
