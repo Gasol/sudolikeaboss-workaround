@@ -162,7 +162,8 @@ def main():
     print ""
     print "    - Adding a shim that is added to the chrome extension"
     print "        - Warning! This could potentially screw up chrome. Install at your own risk"
-    print "    - Daemonizing the sudolikeaboss-server"
+    print "    - Daemonizing the sudolikeaboss-workaround server"
+    print ""
 
     yes = set(['yes', 'y', 'ye'])
     no = set(['no', 'n'])
