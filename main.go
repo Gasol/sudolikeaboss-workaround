@@ -9,7 +9,7 @@ func main() {
 	app := cli.NewApp()
 
 	app.Name = "sudolikeaboss-server"
-	app.Version = "0.1.0"
+	app.Version = "0.1.1"
 	app.Usage = "run the sudolikeaboss server for 1password5 workaround"
 	app.Action = func(c *cli.Context) {
 		runServer()
