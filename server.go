@@ -77,9 +77,9 @@ func NewClientConnection(ws *websocket.Conn, handler *WebsocketHandler, sendHand
 	}
 }
 
-func (clientConn *ClientConnection) SendEnvelope(event *Envelope) bool {
+func (clientConn *ClientConnection) SendEnvelope(envelope *Envelope) bool {
 	select {
-	case clientConn.sendBuffer <- event:
+	case clientConn.sendBuffer <- envelope:
 		return true
 	default:
 		return false
@@ -118,7 +118,7 @@ func (clientConn *ClientConnection) readPump() {
 }
 
 func (clientConn *ClientConnection) sendPump() {
-	log.Println("Starting send pump")
+	log.Printf("Starting send pump on: %s", clientConn.handler.Name)
 
 	ticker := time.NewTicker(pingPeriod)
 
@@ -134,6 +134,7 @@ func (clientConn *ClientConnection) sendPump() {
 			log.Printf("Receiving message for %s", clientConn.handler.Name)
 			if !ok {
 				clientConn.sendToClient(websocket.CloseMessage, []byte{})
+				log.Printf("Closing connection on: %s", clientConn.handler.Name)
 				return
 			}
 
@@ -141,9 +142,8 @@ func (clientConn *ClientConnection) sendPump() {
 				return
 			}
 		case <-ticker.C:
-			log.Printf("ticker %s", clientConn.handler.Name)
-
 			if err := clientConn.sendToClient(websocket.PingMessage, []byte{}); err != nil {
+				log.Printf("Closing connection on: %s", clientConn.handler.Name)
 				return
 			}
 		}
@@ -194,9 +194,9 @@ func (handler *WebsocketHandler) Associate(associate *WebsocketHandler) {
 	handler.associate = associate
 }
 
-func (handler *WebsocketHandler) Send(event *Envelope) error {
+func (handler *WebsocketHandler) Send(envelope *Envelope) error {
 	select {
-	case handler.receive <- event:
+	case handler.receive <- envelope:
 		return nil
 	default:
 		return errors.New("Error sending to the associate")
@@ -225,17 +225,19 @@ func (handler *WebsocketHandler) GetClientConnection(id string) (*ClientConnecti
 func (handler *WebsocketHandler) sendPump() {
 	for {
 		select {
-		case event, ok := <-handler.receive:
+		case envelope, ok := <-handler.receive:
 			if !ok {
 				//clientConn.sendToClient(websocket.CloseMessage, []byte{})
 				return
 			}
-			clientConn, err := handler.GetClientConnection(event.Name)
+			clientConn, err := handler.GetClientConnection(envelope.Name)
 			if err != nil {
-				return
+				// Skip this request
+				// If we return it'll screw everything up
+				continue
 			}
-			if !clientConn.SendEnvelope(event) {
-				return
+			if !clientConn.SendEnvelope(envelope) {
+				continue
 			}
 		}
 	}
