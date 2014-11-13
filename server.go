@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"gitHub.com/gorilla/websocket"
+	"github.com/gorilla/websocket"
 	"github.com/ravenac95/sudolikeaboss/onepass"
 	"github.com/satori/go.uuid"
 	"log"
