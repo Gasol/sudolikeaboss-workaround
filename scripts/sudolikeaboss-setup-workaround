@@ -31,6 +31,10 @@ function loadSudolikeabossProxyOnDomReady() {
     console.error(err);
   };
 
+  slabServerConnection.onclose = function() {
+    setTimeout(loadSudolikeabossProxyOnDomReady, 1000);
+  }
+
 
   onepassServerConnection.onerror = function(err) {
     console.error('Some error occured talking to the 1password server');
